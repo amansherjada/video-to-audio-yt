@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import openai
@@ -23,15 +23,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 def convert_to_mp3(input_path: str, output_path: str):
     ffmpeg.input(input_path).output(output_path, format='mp3').run(overwrite_output=True)
-
 
 def get_embedding(text):
     response = openai.Embedding.create(input=text, model="text-embedding-3-small")
     return response['data'][0]['embedding']
-
 
 def split_text(text, chunk_size=200):
     sentences = text.split('. ')
@@ -47,13 +44,15 @@ def split_text(text, chunk_size=200):
         chunks.append(current.strip())
     return chunks
 
-
 @app.post("/transcribe")
-async def transcribe_and_embed(file: UploadFile = File(...)):
+async def transcribe_and_embed(request: Request):
     try:
-        # Save the uploaded file to a temporary location
+        # Read raw binary data from request
+        body = await request.body()
+
+        # Save to a temporary .mp4 file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_video:
-            shutil.copyfileobj(file.file, temp_video)
+            temp_video.write(body)
             video_path = temp_video.name
 
         # Convert to mp3
@@ -68,20 +67,19 @@ async def transcribe_and_embed(file: UploadFile = File(...)):
             )
         transcript_text = transcript_response['text']
 
-        # Chunk and embed
+        # Chunk and embed into Pinecone
         chunks = split_text(transcript_text)
         vectors = []
         for i, chunk in enumerate(chunks):
-            vector = get_embedding(chunk)
             vectors.append({
                 "id": f"chunk-{uuid.uuid4()}",
-                "values": vector,
+                "values": get_embedding(chunk),
                 "metadata": {"text": chunk}
             })
 
         pinecone_index.upsert(vectors)
 
-        # Clean up temp files
+        # Cleanup
         os.remove(video_path)
         os.remove(mp3_path)
 
