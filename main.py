@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import openai
-from pinecone import Pinecone, ServerlessSpec
+from pinecone import Pinecone
 import tempfile
 import os
 import uuid
@@ -13,12 +13,15 @@ import shutil
 openai_api_key = os.getenv("OPENAI_API_KEY")
 pinecone_api_key = os.getenv("PINECONE_API_KEY")
 
-# ✅ Add key debug and validation
+# ✅ Debug check for API keys
 if not openai_api_key:
     raise RuntimeError("❌ OPENAI_API_KEY not found in environment.")
 print("✅ Loaded OpenAI key (first 10 chars):", openai_api_key[:10])
+
+# ✅ Set OpenAI API key
 openai.api_key = openai_api_key
 
+# ✅ Create Pinecone client
 pc = Pinecone(api_key=pinecone_api_key)
 pinecone_index = pc.Index("youtube-transcript")
 
@@ -59,7 +62,7 @@ async def transcribe_and_embed(request: Request):
         # Read raw binary data from request
         body = await request.body()
 
-        # Save to a temporary .mp4 file
+        # Save to temporary .mp4 file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_video:
             temp_video.write(body)
             video_path = temp_video.name
@@ -68,7 +71,7 @@ async def transcribe_and_embed(request: Request):
         mp3_path = video_path.replace(".mp4", ".mp3")
         convert_to_mp3(video_path, mp3_path)
 
-        # ✅ Whisper transcription
+        # ✅ Transcribe using OpenAI SDK
         with open(mp3_path, "rb") as audio_file:
             transcript_response = openai.Audio.transcribe(
                 model="whisper-1",
@@ -88,7 +91,7 @@ async def transcribe_and_embed(request: Request):
 
         pinecone_index.upsert(vectors)
 
-        # ✅ Cleanup
+        # Cleanup
         os.remove(video_path)
         os.remove(mp3_path)
 
