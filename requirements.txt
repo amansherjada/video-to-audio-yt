@@ -5,3 +5,7 @@ openai>=1.59.4
 pinecone>=6.0.0
 ffmpeg-python
 python-multipart
+google-api-python-client
+google-auth
+google-auth-httplib2
+google-auth-oauthlib
