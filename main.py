@@ -7,7 +7,7 @@ import tempfile
 import os
 import uuid
 import ffmpeg
-
+import sys
 # === Environment Variables ===
 openai_api_key = os.getenv("OPENAI_API_KEY")
 pinecone_api_key = os.getenv("PINECONE_API_KEY")
@@ -77,6 +77,8 @@ async def transcribe_and_embed(request: Request):
         convert_to_mp3(video_path, mp3_path)
 
         print("🗣️ Sending to Whisper for transcription...")
+        sys.stdout.flush() 
+        
         with open(mp3_path, "rb") as audio_file:
             transcript_text = client.audio.transcriptions.create(
                 model="whisper-1",
