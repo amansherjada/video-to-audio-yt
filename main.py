@@ -7,7 +7,9 @@ import tempfile
 import os
 import uuid
 import ffmpeg
+import glob  # 🔄
 import sys
+
 # === Environment Variables ===
 openai_api_key = os.getenv("OPENAI_API_KEY")
 pinecone_api_key = os.getenv("PINECONE_API_KEY")
@@ -20,7 +22,6 @@ if not pinecone_api_key:
 print("✅ OPENAI_API_KEY prefix:", openai_api_key[:10])
 print("✅ PINECONE_API_KEY prefix:", pinecone_api_key[:10])
 
-# === Clients ===
 client = OpenAI(api_key=openai_api_key)
 pc = Pinecone(api_key=pinecone_api_key)
 pinecone_index = pc.Index("youtube-transcript")
@@ -29,7 +30,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Update this for security in production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -39,6 +40,16 @@ def convert_to_mp3(input_path: str, output_path: str):
     print("🎛️ Converting to MP3...")
     ffmpeg.input(input_path).output(output_path, format='mp3').run(overwrite_output=True, quiet=True)
     print("✅ MP3 created at:", output_path)
+
+# 🔄 Split MP3 into 5-minute chunks
+def split_audio_to_chunks(mp3_path, chunk_folder):
+    print("📼 Splitting MP3 into 5-min chunks...")
+    os.makedirs(chunk_folder, exist_ok=True)
+    output_pattern = os.path.join(chunk_folder, "chunk_%03d.mp3")
+    ffmpeg.input(mp3_path).output(output_pattern, f='segment', segment_time=300, c='copy').run(overwrite_output=True, quiet=True)
+    chunks = sorted(glob.glob(os.path.join(chunk_folder, "chunk_*.mp3")))
+    print(f"✅ Total chunks created: {len(chunks)}")
+    return chunks
 
 def get_embedding(text):
     print("📐 Getting embedding for chunk of length:", len(text))
@@ -58,7 +69,7 @@ def split_text(text, chunk_size=200):
             current = s + '. '
     if current:
         chunks.append(current.strip())
-    print(f"✅ Total chunks created: {len(chunks)}")
+    print(f"✅ Total text chunks created: {len(chunks)}")
     return chunks
 
 @app.post("/transcribe")
@@ -76,18 +87,23 @@ async def transcribe_and_embed(request: Request):
         mp3_path = video_path.replace(".mp4", ".mp3")
         convert_to_mp3(video_path, mp3_path)
 
-        print("🗣️ Sending to Whisper for transcription...")
-        sys.stdout.flush() 
-        
-        with open(mp3_path, "rb") as audio_file:
-            transcript_text = client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file,
-                response_format="text"
-            )
-        print("✅ Transcription completed. Preview:", transcript_text[:100])
+        # 🔄 SPLIT AUDIO INTO CHUNKS
+        chunk_folder = tempfile.mkdtemp()
+        audio_chunks = split_audio_to_chunks(mp3_path, chunk_folder)
 
-        chunks = split_text(transcript_text)
+        full_transcript = ""
+        for i, chunk_path in enumerate(audio_chunks):
+            print(f"🧠 Transcribing chunk {i + 1}/{len(audio_chunks)}")
+            with open(chunk_path, "rb") as chunk_file:
+                result = client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=chunk_file,
+                    response_format="text"
+                )
+            full_transcript += result + "\n"
+
+        print("✅ Full transcription completed. Preview:", full_transcript[:200])
+        chunks = split_text(full_transcript)
         vectors = []
 
         print("📡 Uploading to Pinecone...")
@@ -97,15 +113,17 @@ async def transcribe_and_embed(request: Request):
                 "values": get_embedding(chunk),
                 "metadata": {"text": chunk}
             })
-
         pinecone_index.upsert(vectors)
         print("✅ Uploaded to Pinecone")
 
         os.remove(video_path)
         os.remove(mp3_path)
-        print("🧹 Temporary files cleaned")
+        for f in audio_chunks:
+            os.remove(f)
+        os.rmdir(chunk_folder)
+        print("🧹 All temporary files cleaned")
 
-        return JSONResponse(content={"transcript": transcript_text})
+        return JSONResponse(content={"transcript": full_transcript.strip()})
 
     except Exception as e:
         print("❌ Error:", str(e))
