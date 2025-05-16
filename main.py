@@ -7,34 +7,32 @@ import tempfile
 import os
 import uuid
 import ffmpeg
-import shutil
 
-# ✅ Load API keys from environment
+# Load API keys from environment variables
 openai_api_key = os.getenv("OPENAI_API_KEY")
 pinecone_api_key = os.getenv("PINECONE_API_KEY")
 
-# ✅ Debug check for API keys
 if not openai_api_key:
     raise RuntimeError("❌ OPENAI_API_KEY not found in environment.")
-print("✅ Loaded OpenAI key (first 10 chars):", openai_api_key[:10])
+if not pinecone_api_key:
+    raise RuntimeError("❌ PINECONE_API_KEY not found in environment.")
 
-# ✅ Set up OpenAI and Pinecone clients using SDK v1+
 client = OpenAI(api_key=openai_api_key)
 pc = Pinecone(api_key=pinecone_api_key)
-pinecone_index = pc.Index("youtube-transcript")
+pinecone_index = pc.Index("youtube-transcript")  # Change if your index name is different
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # For production, restrict to your GAS domain
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 def convert_to_mp3(input_path: str, output_path: str):
-    ffmpeg.input(input_path).output(output_path, format='mp3').run(overwrite_output=True)
+    ffmpeg.input(input_path).output(output_path, format='mp3').run(overwrite_output=True, quiet=True)
 
 def get_embedding(text):
     response = client.embeddings.create(input=text, model="text-embedding-3-small")
@@ -69,7 +67,7 @@ async def transcribe_and_embed(request: Request):
         mp3_path = video_path.replace(".mp4", ".mp3")
         convert_to_mp3(video_path, mp3_path)
 
-        # ✅ Transcribe using OpenAI client (v1.59.4+)
+        # Transcribe using OpenAI Whisper
         with open(mp3_path, "rb") as audio_file:
             transcript_text = client.audio.transcriptions.create(
                 model="whisper-1",
@@ -77,10 +75,10 @@ async def transcribe_and_embed(request: Request):
                 response_format="text"
             )
 
-        # ✅ Chunk and embed into Pinecone
+        # Chunk and embed into Pinecone
         chunks = split_text(transcript_text)
         vectors = []
-        for i, chunk in enumerate(chunks):
+        for chunk in chunks:
             vectors.append({
                 "id": f"chunk-{uuid.uuid4()}",
                 "values": get_embedding(chunk),
@@ -97,3 +95,10 @@ async def transcribe_and_embed(request: Request):
 
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+# (Optional) Embedding endpoint if you want to use it separately
+@app.post("/embed")
+async def embed_text(request: Request):
+    data = await request.json()
+    embedding = get_embedding(data["text"])
+    return {"embedding": embedding}
