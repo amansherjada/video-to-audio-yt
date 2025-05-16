@@ -22,5 +22,5 @@ COPY main.py .
 # Expose port
 EXPOSE 8080
 
-# Command to run the application
-CMD ["gunicorn", "main:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8080"]
+# ✅ Command to run the application with 120s timeout
+CMD ["gunicorn", "main:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8080", "--timeout", "120"]
