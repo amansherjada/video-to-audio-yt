@@ -3,21 +3,27 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
 from pinecone import Pinecone
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+import requests
 import tempfile
 import os
 import uuid
 import ffmpeg
-import glob  # 🔄
+import glob
 import sys
 
 # === Environment Variables ===
 openai_api_key = os.getenv("OPENAI_API_KEY")
 pinecone_api_key = os.getenv("PINECONE_API_KEY")
+gcred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
 if not openai_api_key:
     raise RuntimeError("❌ OPENAI_API_KEY not found in environment.")
 if not pinecone_api_key:
     raise RuntimeError("❌ PINECONE_API_KEY not found in environment.")
+if not gcred_path or not os.path.exists(gcred_path):
+    raise RuntimeError("❌ GOOGLE_APPLICATION_CREDENTIALS path is invalid or not set.")
 
 print("✅ OPENAI_API_KEY prefix:", openai_api_key[:10])
 print("✅ PINECONE_API_KEY prefix:", pinecone_api_key[:10])
@@ -41,7 +47,6 @@ def convert_to_mp3(input_path: str, output_path: str):
     ffmpeg.input(input_path).output(output_path, format='mp3').run(overwrite_output=True, quiet=True)
     print("✅ MP3 created at:", output_path)
 
-# 🔄 Split MP3 into 5-minute chunks
 def split_audio_to_chunks(mp3_path, chunk_folder):
     print("📼 Splitting MP3 into 5-min chunks...")
     os.makedirs(chunk_folder, exist_ok=True)
@@ -72,22 +77,42 @@ def split_text(text, chunk_size=200):
     print(f"✅ Total text chunks created: {len(chunks)}")
     return chunks
 
+def download_video_from_drive(file_id, destination_path):
+    print(f"🎯 Downloading video from Drive file_id={file_id}")
+    credentials = service_account.Credentials.from_service_account_file(
+        gcred_path,
+        scopes=["https://www.googleapis.com/auth/drive.readonly"]
+    )
+    drive_service = build("drive", "v3", credentials=credentials)
+    request = drive_service.files().get_media(fileId=file_id)
+    downloader = requests.get(
+        f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media",
+        headers={"Authorization": f"Bearer {credentials.token}"}
+    )
+
+    if downloader.status_code == 200:
+        with open(destination_path, "wb") as f:
+            f.write(downloader.content)
+        print("✅ Downloaded video to:", destination_path)
+    else:
+        raise Exception(f"Download failed: {downloader.status_code} - {downloader.text}")
+
 @app.post("/transcribe")
 async def transcribe_and_embed(request: Request):
     try:
         print("🚀 /transcribe endpoint hit")
-        body = await request.body()
-        print("📦 Received video payload of size:", len(body), "bytes")
+        data = await request.json()
+        file_id = data.get("file_id")
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_video:
-            temp_video.write(body)
-            video_path = temp_video.name
-        print("📝 Saved .mp4 to:", video_path)
+        if not file_id:
+            return JSONResponse(status_code=400, content={"error": "Missing file_id"})
+
+        video_path = tempfile.mktemp(suffix=".mp4")
+        download_video_from_drive(file_id, video_path)
 
         mp3_path = video_path.replace(".mp4", ".mp3")
         convert_to_mp3(video_path, mp3_path)
 
-        # 🔄 SPLIT AUDIO INTO CHUNKS
         chunk_folder = tempfile.mkdtemp()
         audio_chunks = split_audio_to_chunks(mp3_path, chunk_folder)
 
@@ -121,7 +146,7 @@ async def transcribe_and_embed(request: Request):
         for f in audio_chunks:
             os.remove(f)
         os.rmdir(chunk_folder)
-        print("🧹 All temporary files cleaned")
+        print("🧹 Cleaned all temporary files")
 
         return JSONResponse(content={"transcript": full_transcript.strip()})
 
