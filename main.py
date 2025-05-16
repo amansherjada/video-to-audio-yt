@@ -9,8 +9,17 @@ import uuid
 import ffmpeg
 import shutil
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
-pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+# ✅ Load API keys from environment
+openai_api_key = os.getenv("OPENAI_API_KEY")
+pinecone_api_key = os.getenv("PINECONE_API_KEY")
+
+# ✅ Add key debug and validation
+if not openai_api_key:
+    raise RuntimeError("❌ OPENAI_API_KEY not found in environment.")
+print("✅ Loaded OpenAI key (first 10 chars):", openai_api_key[:10])
+openai.api_key = openai_api_key
+
+pc = Pinecone(api_key=pinecone_api_key)
 pinecone_index = pc.Index("youtube-transcript")
 
 app = FastAPI()
@@ -59,7 +68,7 @@ async def transcribe_and_embed(request: Request):
         mp3_path = video_path.replace(".mp4", ".mp3")
         convert_to_mp3(video_path, mp3_path)
 
-        # Transcribe using Whisper
+        # ✅ Whisper transcription
         with open(mp3_path, "rb") as audio_file:
             transcript_response = openai.Audio.transcribe(
                 model="whisper-1",
@@ -67,7 +76,7 @@ async def transcribe_and_embed(request: Request):
             )
         transcript_text = transcript_response['text']
 
-        # Chunk and embed into Pinecone
+        # ✅ Chunk and embed into Pinecone
         chunks = split_text(transcript_text)
         vectors = []
         for i, chunk in enumerate(chunks):
@@ -79,7 +88,7 @@ async def transcribe_and_embed(request: Request):
 
         pinecone_index.upsert(vectors)
 
-        # Cleanup
+        # ✅ Cleanup
         os.remove(video_path)
         os.remove(mp3_path)
 
