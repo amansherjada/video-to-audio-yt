@@ -9,7 +9,7 @@ import uuid
 import ffmpeg
 import shutil
 
-openai.api_key = "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"
+openai.api_key = "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"
 pc = Pinecone(api_key="pcsk_475ix6_QNMj2etqYWbrUz2aKFQebCPzCepmZEsZFoWsMG3wjYvFaxdUFu73h7GWbieTeti")
 pinecone_index = pc.Index("youtube-transcript")
 
