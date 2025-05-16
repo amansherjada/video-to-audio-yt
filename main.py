@@ -9,8 +9,8 @@ import uuid
 import ffmpeg
 import shutil
 
-openai.api_key = "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"
-pc = Pinecone(api_key="pcsk_475ix6_QNMj2etqYWbrUz2aKFQebCPzCepmZEsZFoWsMG3wjYvFaxdUFu73h7GWbieTeti")
+openai.api_key = os.getenv("OPENAI_API_KEY")
+pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
 pinecone_index = pc.Index("youtube-transcript")
 
 app = FastAPI()
