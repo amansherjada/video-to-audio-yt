@@ -39,8 +39,8 @@ def convert_to_mp3(input_path: str, output_path: str):
     ffmpeg.input(input_path).output(output_path, format='mp3').run(overwrite_output=True)
 
 def get_embedding(text):
-    response = openai.Embedding.create(input=text, model="text-embedding-3-small")
-    return response['data'][0]['embedding']
+    response = openai.embeddings.create(input=text, model="text-embedding-3-small")
+    return response.data[0].embedding
 
 def split_text(text, chunk_size=200):
     sentences = text.split('. ')
@@ -71,13 +71,14 @@ async def transcribe_and_embed(request: Request):
         mp3_path = video_path.replace(".mp4", ".mp3")
         convert_to_mp3(video_path, mp3_path)
 
-        # ✅ Transcribe using OpenAI SDK
+        # ✅ Transcribe using OpenAI SDK v1.59.4
         with open(mp3_path, "rb") as audio_file:
-            transcript_response = openai.Audio.transcribe(
+            transcript_response = openai.audio.transcriptions.create(
                 model="whisper-1",
-                file=audio_file
+                file=audio_file,
+                response_format="text"
             )
-        transcript_text = transcript_response['text']
+        transcript_text = transcript_response
 
         # ✅ Chunk and embed into Pinecone
         chunks = split_text(transcript_text)
