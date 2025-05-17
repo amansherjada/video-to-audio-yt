@@ -23,4 +23,4 @@ COPY main.py .
 EXPOSE 8080
 
 # ✅ Command to run the application with 120s timeout
-CMD ["gunicorn", "main:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8080", "--timeout", "120"]
+CMD ["gunicorn", "main:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8080", "--timeout", "1000"]
