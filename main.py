@@ -12,6 +12,8 @@ import uuid
 import ffmpeg
 import glob
 import sys
+import re  # ✅ Added for cleaning transcript
+from google.auth.transport.requests import Request as GoogleAuthRequest
 
 # === Environment Variables ===
 openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -77,17 +79,23 @@ def split_text(text, chunk_size=200):
     print(f"✅ Total text chunks created: {len(chunks)}")
     return chunks
 
+# ✅ CLEANING FUNCTION TO REMOVE GARBAGE TEXT
+def clean_transcript(text):
+    print("🧹 Cleaning transcript...")
+    text = re.sub(r"\\an\d+\\?.*?", "", text)  # remove subtitle artifacts
+    text = re.sub(r"[-–—_=*#{}<>[\]\"\'`|]", "", text)
+    text = re.sub(r"\s{2,}", " ", text)
+    text = re.sub(r"\n{2,}", "\n", text)
+    text = re.sub(r"\d{2,}[:.]\d{2,}[:.]\d{2,}", "", text)
+    return text.strip()
+
 def download_video_from_drive(file_id, destination_path):
     print(f"🎯 Downloading video from Drive file_id={file_id}")
     credentials = service_account.Credentials.from_service_account_file(
         gcred_path,
         scopes=["https://www.googleapis.com/auth/drive.readonly"]
     )
-
-    # ✅ Refresh token manually using a Request object
-    from google.auth.transport.requests import Request
-    credentials.refresh(Request())
-
+    credentials.refresh(GoogleAuthRequest())
     headers = {"Authorization": f"Bearer {credentials.token}"}
     url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
 
@@ -98,7 +106,6 @@ def download_video_from_drive(file_id, destination_path):
         print("✅ Downloaded video to:", destination_path)
     else:
         raise Exception(f"Download failed: {response.status_code} - {response.text}")
-
 
 @app.post("/transcribe")
 async def transcribe_and_embed(request: Request):
@@ -126,9 +133,11 @@ async def transcribe_and_embed(request: Request):
                 result = client.audio.transcriptions.create(
                     model="whisper-1",
                     file=chunk_file,
-                    response_format="text"
+                    response_format="text",
+                    language="en"  # ✅ Force translation to English
                 )
-            full_transcript += result + "\n"
+            cleaned = clean_transcript(result)
+            full_transcript += cleaned + "\n"
 
         print("✅ Full transcription completed. Preview:", full_transcript[:200])
         chunks = split_text(full_transcript)
