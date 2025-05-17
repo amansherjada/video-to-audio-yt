@@ -83,19 +83,22 @@ def download_video_from_drive(file_id, destination_path):
         gcred_path,
         scopes=["https://www.googleapis.com/auth/drive.readonly"]
     )
-    drive_service = build("drive", "v3", credentials=credentials)
-    request = drive_service.files().get_media(fileId=file_id)
-    downloader = requests.get(
-        f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media",
-        headers={"Authorization": f"Bearer {credentials.token}"}
-    )
 
-    if downloader.status_code == 200:
+    # ✅ Refresh token manually using a Request object
+    from google.auth.transport.requests import Request
+    credentials.refresh(Request())
+
+    headers = {"Authorization": f"Bearer {credentials.token}"}
+    url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
+
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
         with open(destination_path, "wb") as f:
-            f.write(downloader.content)
+            f.write(response.content)
         print("✅ Downloaded video to:", destination_path)
     else:
-        raise Exception(f"Download failed: {downloader.status_code} - {downloader.text}")
+        raise Exception(f"Download failed: {response.status_code} - {response.text}")
+
 
 @app.post("/transcribe")
 async def transcribe_and_embed(request: Request):
