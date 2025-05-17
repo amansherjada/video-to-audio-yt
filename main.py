@@ -12,8 +12,7 @@ import os
 import uuid
 import ffmpeg
 import glob
-import sys
-import re
+import re  # ✅ For cleaning subtitles and junk
 
 # === Environment Variables ===
 openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -79,30 +78,41 @@ def split_text(text, chunk_size=200):
     print(f"✅ Total text chunks created: {len(chunks)}")
     return chunks
 
+# ✅ Cleaning subtitle artifacts and junk
 def clean_transcript(text):
     print("🧹 Cleaning transcript...")
-    text = re.sub(r"\\an\d+\\?.*?", "", text)  # Remove subtitle artifacts
+    text = re.sub(r"\\an\d+\\?.*?", "", text)  # subtitle junk
     text = re.sub(r"[-–—_=*#{}<>[\]\"\'`|]", "", text)
     text = re.sub(r"\s{2,}", " ", text)
     text = re.sub(r"\n{2,}", "\n", text)
     text = re.sub(r"\d{2,}[:.]\d{2,}[:.]\d{2,}", "", text)
     return text.strip()
 
-def download_video_from_drive(file_id, destination_path):
+# ✅ Download file and return video path + clean video name
+def download_video_from_drive(file_id):
     print(f"🎯 Downloading video from Drive file_id={file_id}")
     credentials = service_account.Credentials.from_service_account_file(
         gcred_path,
         scopes=["https://www.googleapis.com/auth/drive.readonly"]
     )
     credentials.refresh(GoogleAuthRequest())
+    drive_service = build("drive", "v3", credentials=credentials)
+
+    # ✅ Get the filename
+    file_metadata = drive_service.files().get(fileId=file_id, fields="name").execute()
+    original_name = file_metadata['name']
+    filename_no_ext = os.path.splitext(original_name)[0].replace(" ", "_")
+
     headers = {"Authorization": f"Bearer {credentials.token}"}
     url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
-
     response = requests.get(url, headers=headers)
+
     if response.status_code == 200:
-        with open(destination_path, "wb") as f:
+        full_path = os.path.join(tempfile.gettempdir(), filename_no_ext + ".mp4")
+        with open(full_path, "wb") as f:
             f.write(response.content)
-        print("✅ Downloaded video to:", destination_path)
+        print("✅ Downloaded video to:", full_path)
+        return full_path, filename_no_ext
     else:
         raise Exception(f"Download failed: {response.status_code} - {response.text}")
 
@@ -112,13 +122,10 @@ async def transcribe_and_embed(request: Request):
         print("🚀 /transcribe endpoint hit")
         data = await request.json()
         file_id = data.get("file_id")
-
         if not file_id:
             return JSONResponse(status_code=400, content={"error": "Missing file_id"})
 
-        video_path = tempfile.mktemp(suffix=".mp4")
-        download_video_from_drive(file_id, video_path)
-
+        video_path, video_name = download_video_from_drive(file_id)
         mp3_path = video_path.replace(".mp4", ".mp3")
         convert_to_mp3(video_path, mp3_path)
 
@@ -143,14 +150,13 @@ async def transcribe_and_embed(request: Request):
         vectors = []
 
         print("📡 Uploading to Pinecone...")
-        video_name = os.path.basename(video_path).replace(".mp4", "").replace(" ", "_")  # ✅ use video filename
         for idx, chunk in enumerate(chunks):
             vectors.append({
-                "id": f"{video_name}-chunk-{idx+1}",
+                "id": f"{video_name}-chunk-{idx+1}",  # ✅ Clean file name as vector ID
                 "values": get_embedding(chunk),
                 "metadata": {
                     "text": chunk,
-                    "source_video": video_name
+                    "source_video": video_name  # ✅ Optional traceability
                 }
             })
 
