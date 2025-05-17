@@ -144,12 +144,20 @@ async def transcribe_and_embed(request: Request):
         vectors = []
 
         print("📡 Uploading to Pinecone...")
-        for chunk in chunks:
-            vectors.append({
-                "id": f"chunk-{uuid.uuid4()}",
-                "values": get_embedding(chunk),
-                "metadata": {"text": chunk}
-            })
+        # ⬇️ Add this above the loop to get the video name
+video_name = os.path.basename(video_path).replace(".mp4", "").replace(" ", "_")
+
+# ⬇️ Replace the loop
+for idx, chunk in enumerate(chunks):
+    vectors.append({
+        "id": f"{video_name}-chunk-{idx+1}",  # ✅ Use video name in ID
+        "values": get_embedding(chunk),
+        "metadata": {
+            "text": chunk,
+            "source_video": video_name  # ✅ optional: helps track origin
+        }
+    })
+
         pinecone_index.upsert(vectors)
         print("✅ Uploaded to Pinecone")
 
