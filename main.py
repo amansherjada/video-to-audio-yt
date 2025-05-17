@@ -5,6 +5,7 @@ from openai import OpenAI
 from pinecone import Pinecone
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from google.auth.transport.requests import Request as GoogleAuthRequest
 import requests
 import tempfile
 import os
@@ -12,8 +13,7 @@ import uuid
 import ffmpeg
 import glob
 import sys
-import re  # ✅ Added for cleaning transcript
-from google.auth.transport.requests import Request as GoogleAuthRequest
+import re
 
 # === Environment Variables ===
 openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -79,10 +79,9 @@ def split_text(text, chunk_size=200):
     print(f"✅ Total text chunks created: {len(chunks)}")
     return chunks
 
-# ✅ CLEANING FUNCTION TO REMOVE GARBAGE TEXT
 def clean_transcript(text):
     print("🧹 Cleaning transcript...")
-    text = re.sub(r"\\an\d+\\?.*?", "", text)  # remove subtitle artifacts
+    text = re.sub(r"\\an\d+\\?.*?", "", text)  # Remove subtitle artifacts
     text = re.sub(r"[-–—_=*#{}<>[\]\"\'`|]", "", text)
     text = re.sub(r"\s{2,}", " ", text)
     text = re.sub(r"\n{2,}", "\n", text)
@@ -144,19 +143,16 @@ async def transcribe_and_embed(request: Request):
         vectors = []
 
         print("📡 Uploading to Pinecone...")
-        # ⬇️ Add this above the loop to get the video name
-video_name = os.path.basename(video_path).replace(".mp4", "").replace(" ", "_")
-
-# ⬇️ Replace the loop
-for idx, chunk in enumerate(chunks):
-    vectors.append({
-        "id": f"{video_name}-chunk-{idx+1}",  # ✅ Use video name in ID
-        "values": get_embedding(chunk),
-        "metadata": {
-            "text": chunk,
-            "source_video": video_name  # ✅ optional: helps track origin
-        }
-    })
+        video_name = os.path.basename(video_path).replace(".mp4", "").replace(" ", "_")  # ✅ use video filename
+        for idx, chunk in enumerate(chunks):
+            vectors.append({
+                "id": f"{video_name}-chunk-{idx+1}",
+                "values": get_embedding(chunk),
+                "metadata": {
+                    "text": chunk,
+                    "source_video": video_name
+                }
+            })
 
         pinecone_index.upsert(vectors)
         print("✅ Uploaded to Pinecone")
